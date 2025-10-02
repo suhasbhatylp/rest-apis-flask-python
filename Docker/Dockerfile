@@ -1,6 +1,7 @@
 FROM python:latest
 EXPOSE 5000
-RUN pip install flask
+COPY requirements.txt .
+RUN pip install -r requirements.txt
 WORKDIR /app
 ENV FLASK_APP=app.py
 ENV FLASK_RUN_PORT=5000
