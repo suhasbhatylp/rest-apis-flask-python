@@ -1,11 +1,10 @@
 from flask import Flask,request,jsonify
 from flask_smorest import Blueprint
 from flask.views import MethodView
-from uuid import uuid4
+from models import ItemModel
+from db import db
+from sqlalchemy.exc import SQLAlchemyError
 from schemas import ItemSchema, ItemUpdateSchema
-import sys, os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from db import items, stores
 
 blp = Blueprint("Items", __name__, description="operation on items")
 
@@ -13,45 +12,44 @@ blp = Blueprint("Items", __name__, description="operation on items")
 class Items(MethodView):
     @blp.response(200,ItemSchema)
     def get(self,item_id):
-        try:
-            return items[item_id]
-        except KeyError:
-            return jsonify(message="key not found"), 404
+        item = ItemModel.query.get_or_404(item_id)
+        return item
         
     @blp.arguments(ItemUpdateSchema)
     @blp.response(201,ItemSchema)
     def put(self,data,item_id):
-        try :
-            item = items[item_id]
-            item |= data        
-        except KeyError:
-            return jsonify(message="key not found"), 400
-        return items[item_id]
+        item = ItemModel.query.get(item_id)
+        if item:
+            item.name = data["name"]
+            item.price = data["price"]
+        else :
+            item = ItemModel(id=item_id, **data)
+        db.session.add(item)
+        db.session.commit()
+
+        return item
 
     def delete(self,item_id):
-        if item_id in items:
-            removed_item = items.pop(item_id)
-            return jsonify(removed_item=removed_item), 200
-        else:
-            return jsonify(message="item not found")
+        item = ItemModel.query.get_or_404(item_id)
+        db.session.delete(item)
+        db.session.commit()
+        return jsonify(message="item deleted"), 200
 
 @blp.route("/item")
 class Items(MethodView):
     @blp.response(200,ItemSchema(many=True))
     def get(self):
-        return items.values()
+        return ItemModel.query.all()
     
     @blp.arguments(ItemSchema)
     @blp.response(201,ItemSchema)
     def post(self, data):
-        for item in items.values():
-            if item['name'] == data['name'] and item["store_id"] == data["store_id"]:
-                return jsonify(
-                    message="duplicate request, item already present"), 409
+        item = ItemModel(**data)
 
-        if data["store_id"] not in stores:
-            return jsonify(message="Store not found"), 409
-        item_id = uuid4().hex
-        new_item = {**data, 'id': item_id}
-        items[item_id] = new_item
-        return items[item_id]
+        try:
+            db.session.add(item)
+            db.session.commit()
+        except SQLAlchemyError :
+            return jsonify(message="An error occured while inserting the item"), 400
+        
+        return item

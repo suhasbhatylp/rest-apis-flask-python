@@ -1,10 +1,9 @@
 from flask import Flask,jsonify, request
-from uuid import uuid4
+from models import StoreModel
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
+from db import db
 from flask_smorest import Blueprint
 from flask.views import MethodView
-import sys, os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from db import stores
 from schemas import StoreSchema
 
 
@@ -14,33 +13,32 @@ blp = Blueprint("Stores", __name__, description="operation on stores")
 class Store(MethodView):
     @blp.response(200,StoreSchema)
     def get(self, store_id):
-        try:
-            return stores[store_id]
-        except KeyError:
-            return jsonify(message="key not found"), 400
-        
+         store = StoreModel.query.get_or_404(store_id)
+         return store
     def delete(self, store_id):
-        if store_id in stores:
-            removed_store = stores.pop(store_id)
-            return jsonify(removed_store=removed_store), 200
-        else:
-            return jsonify(message="store not found")
+         store = StoreModel.query.get_or_404(store_id)
+         db.session.delete(store)
+         db.session.commit()
+         return jsonify(message = "store deleted"), 200
         
 @blp.route("/store")
 class Store(MethodView):
     @blp.response(200,StoreSchema(many=True))
     def get(self):
-        return stores.values()
+        return StoreModel.query.all()
     
     @blp.arguments(StoreSchema)
     @blp.response(201,StoreSchema)
     def post(self, data):
-        for key in stores.values():
-            if key['name'] == data['name']:
-                return jsonify(message="Store name already exists"), 409
+            store = StoreModel(**data)
 
-        store_id = uuid4().hex
-        new_store = {**data, 'id': store_id}
-        stores[store_id] = new_store
-        return new_store, 201
+            try:
+                db.session.add(store)
+                db.session.commit()
+            except IndentationError :
+                return jsonify(message= " Store name alredy exists"), 400
+            except SQLAlchemyError :
+                return jsonify(message="An error occured while inserting the store"), 400
+            
+            return store
         
